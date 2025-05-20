@@ -10,15 +10,14 @@ from google.auth.transport.requests import Request
 # FLASK CONFIGURATION
 # ======================
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(24))
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # Remove in production!
 
 # ======================
 # GOOGLE API SETTINGS
 # ======================
 SCOPES = ['https://www.googleapis.com/auth/photoslibrary.readonly']
-CLIENT_SECRETS_FILE = "credentials.json"
-REDIRECT_URI = 'http://127.0.0.1:5000/oauth2callback'
+REDIRECT_URI = os.environ.get('REDIRECT_URI', 'http://127.0.0.1:8080/oauth2callback')
 API_BASE_URL = 'https://photoslibrary.googleapis.com/v1'
 
 # ======================
@@ -33,8 +32,17 @@ def index():
 @app.route('/authorize')
 def authorize():
     try:
-        flow = Flow.from_client_secrets_file(
-            CLIENT_SECRETS_FILE,
+        client_config = {
+            "web": {
+                "client_id": os.environ['GOOGLE_CLIENT_ID'],
+                "client_secret": os.environ['GOOGLE_CLIENT_SECRET'],
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [REDIRECT_URI]
+            }
+        }
+        flow = Flow.from_client_config(
+            client_config,
             scopes=SCOPES,
             redirect_uri=REDIRECT_URI
         )
@@ -46,14 +54,23 @@ def authorize():
         return redirect(auth_url)
     except Exception as e:
         return render_template('error.html',
-                             message="Authorization setup failed",
-                             details=str(e))
+                               message="Authorization setup failed",
+                               details=str(e))
 
 @app.route('/oauth2callback')
 def oauth2callback():
     try:
-        flow = Flow.from_client_secrets_file(
-            CLIENT_SECRETS_FILE,
+        client_config = {
+            "web": {
+                "client_id": os.environ['GOOGLE_CLIENT_ID'],
+                "client_secret": os.environ['GOOGLE_CLIENT_SECRET'],
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [REDIRECT_URI]
+            }
+        }
+        flow = Flow.from_client_config(
+            client_config,
             scopes=SCOPES,
             redirect_uri=REDIRECT_URI
         )
@@ -75,14 +92,14 @@ def oauth2callback():
             'scopes': creds.scopes,
             'expiry': creds.expiry.isoformat() if creds.expiry else None
         }
-        
+
         return redirect(url_for('albums'))
-    
+
     except Exception as e:
         session.clear()
         return render_template('error.html',
-                             message="Authentication failed",
-                             details=str(e))
+                               message="Authentication failed",
+                               details=str(e))
 
 # ======================
 # APPLICATION ROUTES
@@ -93,11 +110,10 @@ def albums():
         return redirect(url_for('authorize'))
 
     try:
-        # Load and validate credentials
         creds_dict = session['credentials']
-        expiry = (datetime.datetime.fromisoformat(creds_dict['expiry']) 
-                if creds_dict.get('expiry') else None)
-        
+        expiry = (datetime.datetime.fromisoformat(creds_dict['expiry'])
+                  if creds_dict.get('expiry') else None)
+
         creds = Credentials(
             token=creds_dict['token'],
             refresh_token=creds_dict.get('refresh_token'),
@@ -108,7 +124,6 @@ def albums():
             expiry=expiry
         )
 
-        # Refresh token if expired
         if creds.expired and creds.refresh_token:
             creds.refresh(Request())
             session['credentials'].update({
@@ -116,7 +131,6 @@ def albums():
                 'expiry': creds.expiry.isoformat()
             })
 
-        # Make API request
         headers = {
             'Authorization': f'Bearer {creds.token}',
             'Content-Type': 'application/json'
@@ -126,14 +140,14 @@ def albums():
             headers=headers
         )
         response.raise_for_status()
-        
-        return render_template('albums.html', 
-                             albums=response.json().get('albums', []))
+
+        return render_template('albums.html',
+                               albums=response.json().get('albums', []))
 
     except Exception as e:
         return render_template('error.html',
-                             message="Failed to fetch albums",
-                             details=str(e))
+                               message="Failed to fetch albums",
+                               details=str(e))
 
 @app.route('/logout')
 def logout():
@@ -146,8 +160,8 @@ def logout():
 @app.errorhandler(404)
 def page_not_found(e):
     return render_template('error.html',
-                         message="Page not found",
-                         details=str(e)), 404
+                           message="Page not found",
+                           details=str(e)), 404
 
 # ======================
 # MAIN EXECUTION
