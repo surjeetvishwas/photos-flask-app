@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Google Photos Albums</title>
+</head>
+<body>
+    <h1>📸 Your Albums</h1>
+    <ul>
+    {% for album in albums %}
+        <li>
+            <a href="{{ album.productUrl }}" target="_blank">{{ album.title }}</a>
+            ({{ album.mediaItemsCount or 0 }} items)
+        </li>
+    {% endfor %}
+    </ul>
+    <a href="{{ url_for('logout') }}">Logout</a>
+</body>
+</html>

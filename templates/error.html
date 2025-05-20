@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Error</title>
+</head>
+<body>
+    <h2 style="color: red;">⚠️ Error: {{ message }}</h2>
+    {% if details %}
+    <p>{{ details }}</p>
+    {% endif %}
+    <a href="/">Try again</a>
+</body>
+</html>
