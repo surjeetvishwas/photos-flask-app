@@ -26,7 +26,7 @@ SCOPES = [
     'https://www.googleapis.com/auth/documents',
     'https://www.googleapis.com/auth/spreadsheets'
 ]
-REDIRECT_URI = 'https://your-cloud-run-url/oauth2callback'
+REDIRECT_URI = 'https://photos-flask-app-277752080125.europe-west1.run.app/oauth2callback'
 PHOTOS_BASE = 'https://photoslibrary.googleapis.com/v1'
 PICKER_BASE = 'https://photospicker.googleapis.com/v1'
 
