@@ -23,6 +23,7 @@ SCOPES = [
     'https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata',
     'https://www.googleapis.com/auth/photoslibrary.edit.appcreateddata',
     'https://www.googleapis.com/auth/photoslibrary.appendonly',
+    "https://www.googleapis.com/auth/photos.picker",
     'https://www.googleapis.com/auth/documents',
     'https://www.googleapis.com/auth/spreadsheets'
 ]
