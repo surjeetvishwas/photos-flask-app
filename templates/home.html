@@ -1,0 +1,13 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Home</title></head>
+<body>
+  <h1>Google Photos App</h1>
+  <ul>
+    <li><a href="{{ url_for('authorize') }}">Connect to Google Photos</a></li>
+    <li><a href="{{ url_for('albums') }}">View Albums</a></li>
+    <li><a href="{{ url_for('policy') }}">Privacy Policy</a></li>
+    <li><a href="{{ url_for('logout') }}">Logout</a></li>
+  </ul>
+</body>
+</html>

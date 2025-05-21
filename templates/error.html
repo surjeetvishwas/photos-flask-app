@@ -1,13 +1,10 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
-    <title>Error</title>
-</head>
+<head><meta charset="utf-8"><title>Error</title></head>
 <body>
-    <h2 style="color: red;">⚠️ Error: {{ message }}</h2>
-    {% if details %}
-    <p>{{ details }}</p>
-    {% endif %}
-    <a href="/">Try again</a>
+  <h1>Error</h1>
+  <p><strong>{{ message }}</strong></p>
+  <pre>{{ details }}</pre>
+  <p><a href="{{ url_for('home') }}">Home</a></p>
 </body>
 </html>
