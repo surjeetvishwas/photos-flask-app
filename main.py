@@ -23,7 +23,7 @@ SCOPES = [
     'https://www.googleapis.com/auth/documents',
     'https://www.googleapis.com/auth/spreadsheets'
 ]
-REDIRECT_URI = os.environ.get('REDIRECT_URI', 'http://127.0.0.1:8080/oauth2callback')
+REDIRECT_URI = 'https://photos-flask-app-277752080125.europe-west1.run.app/oauth2callback'
 PHOTOS_BASE = 'https://photoslibrary.googleapis.com/v1'
 
 # Build the client config dynamically from env vars
