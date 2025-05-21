@@ -11,8 +11,9 @@ from googleapiclient.discovery import build
 # FLASK CONFIGURATION
 # ======================
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
-os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # LOCAL DEV ONLY!
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(24))
+# Allow HTTP for localhost testing
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
 # ======================
 # GOOGLE API SETTINGS
@@ -22,9 +23,19 @@ SCOPES = [
     'https://www.googleapis.com/auth/documents',
     'https://www.googleapis.com/auth/spreadsheets'
 ]
-CLIENT_SECRETS_FILE = "credentials.json"
-REDIRECT_URI = 'http://127.0.0.1:5000/oauth2callback'
+REDIRECT_URI = os.environ.get('REDIRECT_URI', 'http://127.0.0.1:8080/oauth2callback')
 PHOTOS_BASE = 'https://photoslibrary.googleapis.com/v1'
+
+# Build the client config dynamically from env vars
+CLIENT_CONFIG = {
+    "web": {
+        "client_id": os.environ['GOOGLE_CLIENT_ID'],
+        "client_secret": os.environ['GOOGLE_CLIENT_SECRET'],
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "redirect_uris": [REDIRECT_URI]
+    }
+}
 
 # ======================
 # HELPERS
@@ -56,7 +67,6 @@ def get_creds():
 # ======================
 # ROUTES
 # ======================
-
 @app.route('/')
 def home():
     return render_template('home.html')
@@ -67,18 +77,24 @@ def policy():
 
 @app.route('/authorize')
 def authorize():
-    flow = Flow.from_client_secrets_file(
-        CLIENT_SECRETS_FILE, scopes=SCOPES, redirect_uri=REDIRECT_URI
+    flow = Flow.from_client_config(
+        CLIENT_CONFIG,
+        scopes=SCOPES,
+        redirect_uri=REDIRECT_URI
     )
     auth_url, _ = flow.authorization_url(
-        access_type='offline', prompt='consent', include_granted_scopes=False
+        access_type='offline',
+        prompt='consent',
+        include_granted_scopes=False
     )
     return redirect(auth_url)
 
 @app.route('/oauth2callback')
 def oauth2callback():
-    flow = Flow.from_client_secrets_file(
-        CLIENT_SECRETS_FILE, scopes=SCOPES, redirect_uri=REDIRECT_URI
+    flow = Flow.from_client_config(
+        CLIENT_CONFIG,
+        scopes=SCOPES,
+        redirect_uri=REDIRECT_URI
     )
     flow.fetch_token(authorization_response=request.url)
     creds = flow.credentials
@@ -88,7 +104,7 @@ def oauth2callback():
     except Exception as e:
         session.clear()
         return render_template('error.html',
-                               message="Scope Validation Failed",
+                               message="Scope validation failed",
                                details=str(e)), 400
 
     session['credentials'] = {
@@ -138,39 +154,29 @@ def photo_metadata(photo_id):
 
 @app.route('/albums/export-docs')
 def export_album_info_to_docs():
-    creds = get_creds()
-    validate_credentials(creds)
-
-    # Fetch albums
+    creds = get_creds(); validate_credentials(creds)
     resp = requests.get(
         f'{PHOTOS_BASE}/albums?pageSize=50',
         headers={'Authorization': f'Bearer {creds.token}'}
     )
     albums = resp.json().get('albums', [])
 
-    # Create Docs
     docs = build('docs', 'v1', credentials=creds)
     doc = docs.documents().create(body={"title": "Google Photos Albums"}).execute()
 
-    # Batch insert album info
-    requests_body = []
-    idx = 1
+    # Batch insert
+    reqs, idx = [], 1
     for a in albums:
         text = f"{a['title']} ({a.get('mediaItemsCount',0)} items)\n"
-        requests_body.append({"insertText": {"location": {"index": idx}, "text": text}})
+        reqs.append({"insertText": {"location": {"index": idx}, "text": text}})
         idx += len(text)
-    docs.documents().batchUpdate(
-        documentId=doc['documentId'],
-        body={"requests": requests_body}
-    ).execute()
+    docs.documents().batchUpdate(documentId=doc['documentId'], body={"requests": reqs}).execute()
 
     return redirect(f"https://docs.google.com/document/d/{doc['documentId']}")
 
 @app.route('/albums/export-sheets')
 def export_album_info_to_sheets():
-    creds = get_creds()
-    validate_credentials(creds)
-
+    creds = get_creds(); validate_credentials(creds)
     resp = requests.get(
         f'{PHOTOS_BASE}/albums?pageSize=50',
         headers={'Authorization': f'Bearer {creds.token}'}
@@ -212,4 +218,5 @@ def not_found(e):
                            details=str(e)), 404
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port, debug=True)
