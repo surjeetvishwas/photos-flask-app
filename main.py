@@ -1,6 +1,7 @@
 import os
 import datetime
 import requests
+import time
 from flask import Flask, redirect, request, session, url_for, render_template
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
@@ -15,17 +16,19 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(24))
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
-
 # ======================
 # GOOGLE API SETTINGS
 # ======================
 SCOPES = [
-    'https://www.googleapis.com/auth/photoslibrary.readonly',
+    'https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata',
+    'https://www.googleapis.com/auth/photoslibrary.edit.appcreateddata',
+    'https://www.googleapis.com/auth/photoslibrary.appendonly',
     'https://www.googleapis.com/auth/documents',
     'https://www.googleapis.com/auth/spreadsheets'
 ]
-REDIRECT_URI = 'https://photos-flask-app-277752080125.europe-west1.run.app/oauth2callback'
+REDIRECT_URI = 'https://your-cloud-run-url/oauth2callback'
 PHOTOS_BASE = 'https://photoslibrary.googleapis.com/v1'
+PICKER_BASE = 'https://photospicker.googleapis.com/v1'
 
 # Build the client config dynamically from env vars
 CLIENT_CONFIG = {
@@ -72,10 +75,6 @@ def get_creds():
 def home():
     return render_template('home.html')
 
-@app.route('/policy')
-def policy():
-    return render_template('policy.html')
-
 @app.route('/authorize')
 def authorize():
     flow = Flow.from_client_config(
@@ -117,49 +116,97 @@ def oauth2callback():
         'scopes': creds.scopes,
         'expiry': creds.expiry.isoformat() if creds.expiry else None
     }
-    return redirect(url_for('albums'))
+    return redirect(url_for('start_picker_session'))
 
-@app.route('/albums')
-def albums():
+@app.route('/start-picker-session')
+def start_picker_session():
     creds = get_creds()
     if not creds or not validate_credentials(creds):
         return redirect(url_for('authorize'))
 
-    resp = requests.get(
-        f'{PHOTOS_BASE}/albums?pageSize=50',
-        headers={'Authorization': f'Bearer {creds.token}'}
+    # Create a new Picker API session
+    session_payload = {
+        "supportSharing": False
+    }
+    resp = requests.post(
+        f'{PICKER_BASE}/sessions',
+        headers={
+            'Authorization': f'Bearer {creds.token}',
+            'Content-Type': 'application/json'
+        },
+        json=session_payload
     )
     if resp.status_code != 200:
         return render_template('error.html',
-                               message="Google Photos API Error",
+                               message="Failed to create Picker session",
                                details=resp.text), resp.status_code
 
-    return render_template('albums.html', albums=resp.json().get('albums', []))
+    picker_session = resp.json()
+    session['picker_session_id'] = picker_session['sessionId']
+    session['picker_uri'] = picker_session['pickerUri']
+    return redirect(picker_session['pickerUri'])
 
-@app.route('/photo/<photo_id>')
-def photo_metadata(photo_id):
+@app.route('/poll-picker-session')
+def poll_picker_session():
     creds = get_creds()
     if not creds or not validate_credentials(creds):
         return redirect(url_for('authorize'))
 
+    session_id = session.get('picker_session_id')
+    if not session_id:
+        return render_template('error.html',
+                               message="No Picker session found",
+                               details="Please start a new Picker session."), 400
+
+    # Poll the session until mediaItemsSet is True
+    for _ in range(10):  # Poll up to 10 times
+        resp = requests.get(
+            f'{PICKER_BASE}/sessions/{session_id}',
+            headers={'Authorization': f'Bearer {creds.token}'}
+        )
+        if resp.status_code != 200:
+            return render_template('error.html',
+                                   message="Failed to poll Picker session",
+                                   details=resp.text), resp.status_code
+
+        session_info = resp.json()
+        if session_info.get('mediaItemsSet'):
+            break
+        time.sleep(2)  # Wait before polling again
+    else:
+        return render_template('error.html',
+                               message="Timeout polling Picker session",
+                               details="User did not select media items in time."), 408
+
+    # Retrieve selected media items
     resp = requests.get(
-        f'{PHOTOS_BASE}/mediaItems/{photo_id}',
+        f'{PICKER_BASE}/mediaItems?sessionId={session_id}',
         headers={'Authorization': f'Bearer {creds.token}'}
     )
     if resp.status_code != 200:
         return render_template('error.html',
-                               message="Photo Metadata Error",
+                               message="Failed to retrieve media items",
                                details=resp.text), resp.status_code
 
-    return render_template('photo_metadata.html', photo=resp.json())
+    media_items = resp.json().get('mediaItems', [])
+    return render_template('media_items.html', media_items=media_items)
 
 @app.route('/albums/export-docs')
 def export_album_info_to_docs():
-    creds = get_creds(); validate_credentials(creds)
+    creds = get_creds()
+    if not creds or not validate_credentials(creds):
+        return redirect(url_for('authorize'))
+
+    # Fetch albums created by the app
     resp = requests.get(
         f'{PHOTOS_BASE}/albums?pageSize=50',
         headers={'Authorization': f'Bearer {creds.token}'}
     )
+    if resp.status_code != 200:
+        return render_template('error.html',
+                               message="Failed to fetch albums",
+                               details=resp.text), resp.status_code
+
     albums = resp.json().get('albums', [])
 
     docs = build('docs', 'v1', credentials=creds)
@@ -177,11 +224,20 @@ def export_album_info_to_docs():
 
 @app.route('/albums/export-sheets')
 def export_album_info_to_sheets():
-    creds = get_creds(); validate_credentials(creds)
+    creds = get_creds()
+    if not creds or not validate_credentials(creds):
+        return redirect(url_for('authorize'))
+
+    # Fetch albums created by the app
     resp = requests.get(
         f'{PHOTOS_BASE}/albums?pageSize=50',
         headers={'Authorization': f'Bearer {creds.token}'}
     )
+    if resp.status_code != 200:
+        return render_template('error.html',
+                               message="Failed to fetch albums",
+                               details=resp.text), resp.status_code
+
     albums = resp.json().get('albums', [])
 
     sheets = build('sheets', 'v4', credentials=creds)
@@ -201,11 +257,6 @@ def export_album_info_to_sheets():
     ).execute()
 
     return redirect(f"https://docs.google.com/spreadsheets/d/{sheet['spreadsheetId']}")
-
-@app.route('/force-reauth')
-def force_reauth():
-    session.clear()
-    return redirect(url_for('authorize'))
 
 @app.route('/logout')
 def logout():
