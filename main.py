@@ -125,18 +125,25 @@ def start_picker_session():
     if not creds or not validate_credentials(creds):
         return redirect(url_for('authorize'))
 
-    # Create a new Picker API session
+    # Correct payload without 'supportSharing'
     session_payload = {
-        "supportSharing": False
+        "filters": {
+            "mediaTypeFilter": {
+                "mediaTypes": ["PHOTO", "VIDEO"]
+            }
+        }
     }
+
+    # Correct endpoint
     resp = requests.post(
-        f'{PICKER_BASE}/sessions',
+        f'{PICKER_BASE}/pickerSessions',
         headers={
             'Authorization': f'Bearer {creds.token}',
             'Content-Type': 'application/json'
         },
         json=session_payload
     )
+
     if resp.status_code != 200:
         return render_template('error.html',
                                message="Failed to create Picker session",
