@@ -20,7 +20,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 # GOOGLE API SETTINGS
 # ======================
 SCOPES = [
-    'https://www.googleapis.com/auth/photoslibrary',
+    'https://www.googleapis.com/auth/photoslibrary.readonly',
     'https://www.googleapis.com/auth/documents',
     'https://www.googleapis.com/auth/spreadsheets'
 ]
