@@ -10,144 +10,137 @@ from google.auth.transport.requests import Request
 # FLASK CONFIGURATION
 # ======================
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(24))
-os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # Remove in production!
+app.secret_key = os.urandom(24)
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # LOCAL DEV ONLY!
 
 # ======================
 # GOOGLE API SETTINGS
 # ======================
-SCOPES = ['https://www.googleapis.com/auth/photoslibrary.readonly']
-REDIRECT_URI = os.environ.get('REDIRECT_URI', 'http://127.0.0.1:8080/oauth2callback')
+SCOPES = ['https://www.googleapis.com/auth/photoslibrary']  # Full read/write
+CLIENT_SECRETS_FILE = "credentials.json"
+REDIRECT_URI = 'http://127.0.0.1:5000/oauth2callback'
 API_BASE_URL = 'https://photoslibrary.googleapis.com/v1'
 
 # ======================
-# AUTHENTICATION ROUTES
+# CORE HELPERS
+# ======================
+def validate_credentials(creds):
+    if not creds or not creds.valid:
+        return False
+    if creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+    required = set(SCOPES)
+    granted = set(creds.scopes or [])
+    if not required.issubset(granted):
+        missing = required - granted
+        raise ValueError(f"Missing scopes: {', '.join(missing)}")
+    return True
+
+def get_credentials_from_session():
+    data = session.get('credentials')
+    if not data:
+        return None
+    expiry = datetime.datetime.fromisoformat(data['expiry']) if data.get('expiry') else None
+    return Credentials(
+        token=data['token'],
+        refresh_token=data.get('refresh_token'),
+        token_uri=data['token_uri'],
+        client_id=data['client_id'],
+        client_secret=data['client_secret'],
+        scopes=data['scopes'],
+        expiry=expiry
+    )
+
+# ======================
+# ROUTES
 # ======================
 @app.route('/')
 def index():
-    if 'credentials' not in session:
-        return redirect(url_for('authorize'))
-    return redirect(url_for('albums'))
+    return redirect(url_for('albums')) if 'credentials' in session else redirect(url_for('authorize'))
 
 @app.route('/authorize')
 def authorize():
-    try:
-        client_config = {
-            "web": {
-                "client_id": os.environ['GOOGLE_CLIENT_ID'],
-                "client_secret": os.environ['GOOGLE_CLIENT_SECRET'],
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [REDIRECT_URI]
-            }
-        }
-        flow = Flow.from_client_config(
-            client_config,
-            scopes=SCOPES,
-            redirect_uri=REDIRECT_URI
-        )
-        auth_url, _ = flow.authorization_url(
-            access_type='offline',
-            prompt='consent',
-            include_granted_scopes='true'
-        )
-        return redirect(auth_url)
-    except Exception as e:
-        return render_template('error.html',
-                               message="Authorization setup failed",
-                               details=str(e))
+    flow = Flow.from_client_secrets_file(
+        CLIENT_SECRETS_FILE,
+        scopes=SCOPES,
+        redirect_uri=REDIRECT_URI
+    )
+    auth_url, _ = flow.authorization_url(
+        access_type='offline',
+        prompt='consent',            # force Google to show consent screen
+        include_granted_scopes=False # do NOT reuse old scopes
+    )
+    return redirect(auth_url)
 
 @app.route('/oauth2callback')
 def oauth2callback():
+    flow = Flow.from_client_secrets_file(
+        CLIENT_SECRETS_FILE,
+        scopes=SCOPES,
+        redirect_uri=REDIRECT_URI
+    )
+    flow.fetch_token(authorization_response=request.url)
+    creds = flow.credentials
+
     try:
-        client_config = {
-            "web": {
-                "client_id": os.environ['GOOGLE_CLIENT_ID'],
-                "client_secret": os.environ['GOOGLE_CLIENT_SECRET'],
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [REDIRECT_URI]
-            }
-        }
-        flow = Flow.from_client_config(
-            client_config,
-            scopes=SCOPES,
-            redirect_uri=REDIRECT_URI
-        )
-        flow.fetch_token(authorization_response=request.url)
-        creds = flow.credentials
-
-        # Validate required scope
-        required_scope = 'https://www.googleapis.com/auth/photoslibrary.readonly'
-        if required_scope not in creds.scopes:
-            raise ValueError(f"Missing required scope: {required_scope}")
-
-        # Store credentials with expiration
-        session['credentials'] = {
-            'token': creds.token,
-            'refresh_token': creds.refresh_token,
-            'token_uri': creds.token_uri,
-            'client_id': creds.client_id,
-            'client_secret': creds.client_secret,
-            'scopes': creds.scopes,
-            'expiry': creds.expiry.isoformat() if creds.expiry else None
-        }
-
-        return redirect(url_for('albums'))
-
+        validate_credentials(creds)
     except Exception as e:
         session.clear()
         return render_template('error.html',
-                               message="Authentication failed",
-                               details=str(e))
+                               message="Scope Validation Failed",
+                               details=str(e)), 400
 
-# ======================
-# APPLICATION ROUTES
-# ======================
+    # Save validated credentials into session
+    session['credentials'] = {
+        'token': creds.token,
+        'refresh_token': creds.refresh_token,
+        'token_uri': creds.token_uri,
+        'client_id': creds.client_id,
+        'client_secret': creds.client_secret,
+        'scopes': creds.scopes,
+        'expiry': creds.expiry.isoformat() if creds.expiry else None
+    }
+    return redirect(url_for('albums'))
+
 @app.route('/albums')
 def albums():
-    if 'credentials' not in session:
+    creds = get_credentials_from_session()
+    if not creds or not validate_credentials(creds):
         return redirect(url_for('authorize'))
 
-    try:
-        creds_dict = session['credentials']
-        expiry = (datetime.datetime.fromisoformat(creds_dict['expiry'])
-                  if creds_dict.get('expiry') else None)
-
-        creds = Credentials(
-            token=creds_dict['token'],
-            refresh_token=creds_dict.get('refresh_token'),
-            token_uri=creds_dict['token_uri'],
-            client_id=creds_dict['client_id'],
-            client_secret=creds_dict['client_secret'],
-            scopes=creds_dict['scopes'],
-            expiry=expiry
-        )
-
-        if creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            session['credentials'].update({
-                'token': creds.token,
-                'expiry': creds.expiry.isoformat()
-            })
-
-        headers = {
-            'Authorization': f'Bearer {creds.token}',
-            'Content-Type': 'application/json'
-        }
-        response = requests.get(
-            f'{API_BASE_URL}/albums?pageSize=50',
-            headers=headers
-        )
-        response.raise_for_status()
-
-        return render_template('albums.html',
-                               albums=response.json().get('albums', []))
-
-    except Exception as e:
+    # Fetch albums
+    headers = {'Authorization': f'Bearer {creds.token}'}
+    resp = requests.get(
+        f'{API_BASE_URL}/albums',
+        headers=headers,
+        params={'pageSize': 50}
+    )
+    if resp.status_code != 200:
+        error = resp.json().get('error', {}).get('message', resp.text)
         return render_template('error.html',
-                               message="Failed to fetch albums",
-                               details=str(e))
+                               message="Google Photos API Error",
+                               details=f"{error} (HTTP {resp.status_code})"), resp.status_code
+
+    albums = resp.json().get('albums', [])
+    return render_template('albums.html', albums=albums)
+
+@app.route('/force-reauth')
+def force_reauth():
+    session.clear()
+    return redirect(url_for('authorize'))
+
+# ======================
+# DEBUG ROUTES
+# ======================
+@app.route('/debug/scopes')
+def debug_scopes():
+    creds = get_credentials_from_session()
+    if not creds:
+        return "<p>No credentials in session.</p>"
+    return (
+        f"<p><strong>Required SCOPES:</strong> {SCOPES}</p>"
+        f"<p><strong>Granted SCOPES:</strong> {creds.scopes}</p>"
+    )
 
 @app.route('/logout')
 def logout():
@@ -158,7 +151,7 @@ def logout():
 # ERROR HANDLER
 # ======================
 @app.errorhandler(404)
-def page_not_found(e):
+def not_found(e):
     return render_template('error.html',
                            message="Page not found",
                            details=str(e)), 404
@@ -167,5 +160,4 @@ def page_not_found(e):
 # MAIN EXECUTION
 # ======================
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8080))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=5000, debug=True)
