@@ -13,7 +13,7 @@ from googleapiclient.discovery import build
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(24))
 # Allow HTTP for localhost testing
-os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+
 
 # ======================
 # GOOGLE API SETTINGS
