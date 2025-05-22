@@ -7,102 +7,102 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
+const __dirname = path.dirname(__filename);
 
 const {
   GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET,
   REDIRECT_URI,
   SESSION_SECRET,
+  PICKER_API_KEY,
   PORT = 8080
 } = process.env;
 
-// Initialize OAuth2 client
 const oauth2Client = new google.auth.OAuth2(
   GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET,
   REDIRECT_URI
 );
 
+// Updated scopes according to new requirements
 const SCOPES = [
-  'https://www.googleapis.com/auth/photoslibrary.readonly',
   'https://www.googleapis.com/auth/photoslibrary.appendonly',
   'https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata',
-  'https://www.googleapis.com/auth/photoslibrary.edit.appcreateddata',
-  'https://www.googleapis.com/auth/drive.file' // required for Picker sometimes
+  'https://www.googleapis.com/auth/photoslibrary.edit.appcreateddata'
 ];
-
-
 
 const app = express();
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json());
 app.use(session({
   secret: SESSION_SECRET,
   resave: false,
-  saveUninitialized: true
+  saveUninitialized: true,
+  cookie: { secure: process.env.NODE_ENV === 'production' }
 }));
 
-// ===== Home =====
+// Routes
 app.get('/', (req, res) => {
-  console.log('[HOME] GET /');
-  res.render('index');
+  res.render('index', { 
+    pickerApiKey: PICKER_API_KEY,
+    isAuthenticated: !!req.session.tokens
+  });
 });
 
-// ===== Authorize Redirect =====
 app.get('/authorize', (req, res) => {
-  console.log('[AUTHORIZE] GET /authorize');
   const url = oauth2Client.generateAuthUrl({
-    access_type: 'online',
+    access_type: 'offline',
     scope: SCOPES,
     prompt: 'consent'
   });
-  console.log('[AUTHORIZE] Redirecting to Google OAuth URL:', url);
   res.redirect(url);
 });
 
-// ===== OAuth2 Callback =====
 app.get('/oauth2callback', async (req, res) => {
-  console.log('[OAUTH2CALLBACK] GET /oauth2callback');
-  const code = req.query.code;
-  console.log('[OAUTH2CALLBACK] Received code:', code);
   try {
-    const { tokens } = await oauth2Client.getToken(code);
-    console.log('[OAUTH2CALLBACK] Tokens received:', tokens);
+    const { tokens } = await oauth2Client.getToken(req.query.code);
     req.session.tokens = tokens;
-    console.log('[OAUTH2CALLBACK] Tokens stored in session');
     res.redirect('/');
   } catch (err) {
-    console.error('[OAUTH2CALLBACK] Error exchanging code for tokens:', err);
-    res.render('error', { message: 'OAuth Error', details: err.toString() });
+    console.error('OAuth Error:', err);
+    res.status(500).render('error', { 
+      message: 'Authentication Failed',
+      details: err.message
+    });
   }
 });
 
-// ===== Provide Access Token to Frontend =====
 app.get('/token', (req, res) => {
-  console.log('[TOKEN] GET /token');
   if (!req.session.tokens) {
-    console.warn('[TOKEN] No tokens in session');
-    return res.status(401).json({ error: 'Not authorized' });
+    return res.status(401).json({ 
+      error: 'Not authenticated',
+      authUrl: '/authorize'
+    });
   }
-  console.log('[TOKEN] Sending access_token to client');
-  res.json({ access_token: req.session.tokens.access_token });
+  res.json({ 
+    access_token: req.session.tokens.access_token,
+    expires_in: req.session.tokens.expiry_date - Date.now()
+  });
 });
 
-// ===== 404 Handler =====
-app.use((req, res, next) => {
-  console.warn('[404] Not Found:', req.originalUrl);
-  res.status(404).render('error', { message: 'Not Found', details: req.originalUrl });
+// Error handlers
+app.use((req, res) => {
+  res.status(404).render('error', { 
+    message: 'Not Found',
+    details: `The requested URL ${req.originalUrl} was not found`
+  });
 });
 
-// ===== Error Handler =====
 app.use((err, req, res, next) => {
-  console.error('[ERROR] Uncaught error:', err);
-  res.status(500).render('error', { message: 'Server Error', details: err.toString() });
+  console.error('Server Error:', err);
+  res.status(500).render('error', {
+    message: 'Server Error',
+    details: process.env.NODE_ENV === 'development' ? err.stack : 'Something went wrong'
+  });
 });
 
-// ===== Start Server =====
 app.listen(PORT, () => {
-  console.log(`[START] Server listening on http://localhost:${PORT}`);
+  console.log(`Server running on http://localhost:${PORT}`);
 });

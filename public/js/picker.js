@@ -1,81 +1,110 @@
-// picker.js
-
+const DEVELOPER_KEY = document.currentScript.getAttribute('data-api-key');
 let accessToken = null;
-const authBtn   = document.getElementById('authorize-btn');
+let pickerApiLoaded = false;
+
+// DOM Elements
+const authBtn = document.getElementById('authorize-btn');
 const pickerBtn = document.getElementById('picker-btn');
-const gallery   = document.getElementById('gallery');
+const gallery = document.getElementById('gallery');
+const statusEl = document.getElementById('status-message');
 
-// 1) Fetch OAuth token from the backend
-async function fetchToken() {
-  console.log('[CLIENT] Fetching /token');
-  const res = await fetch('/token');
-  if (!res.ok) {
-    console.warn('[CLIENT] /token returned', res.status);
-    return;
-  }
-  const data = await res.json();
-  accessToken = data.access_token;
-  console.log('[CLIENT] Access token received');
-  // Now wait for Picker API
-  waitForPicker();
-}
-
-// 2) Poll until both gapi.picker AND the standalone picker library are ready
-function waitForPicker() {
-  const interval = setInterval(() => {
-    const hasGapiPicker = window.google && google.picker && google.picker.PickerBuilder;
-    const hasGapiFlag   = window.pickerApiLoaded;
-    if (hasGapiPicker && hasGapiFlag) {
-      console.log('[CLIENT] Picker fully loaded');
-      clearInterval(interval);
-      pickerBtn.disabled = false;  // enable button
-      authBtn.disabled   = true;   // disable authorize
+// Initialize Picker API
+function initPickerAPI() {
+  return new Promise((resolve) => {
+    if (window.google && google.picker) {
+      resolve();
+      return;
     }
-  }, 300);
+
+    const script = document.createElement('script');
+    script.src = 'https://apis.google.com/js/api.js';
+    script.onload = () => {
+      gapi.load('picker', () => {
+        pickerApiLoaded = true;
+        resolve();
+      });
+    };
+    document.head.appendChild(script);
+  });
 }
 
-// 3) Build and show the photo picker
-function openPicker() {
-  if (!accessToken) {
-    return alert('Please connect to Google first.');
+// Token Management
+async function fetchToken() {
+  try {
+    const response = await fetch('/token');
+    if (!response.ok) {
+      throw new Error(response.status === 401 ? 'Not authenticated' : 'Token request failed');
+    }
+    const data = await response.json();
+    accessToken = data.access_token;
+    updateUI();
+  } catch (error) {
+    showError(error.message);
   }
-  if (!(window.google && google.picker && window.pickerApiLoaded)) {
-    return alert('Picker API not ready. Please wait a moment.');
+}
+
+// Picker Functions
+function createPicker() {
+  if (!pickerApiLoaded || !accessToken) {
+    throw new Error('Picker API not ready');
   }
 
-  console.log('[CLIENT] Opening Picker with API key and origin');
-
-  const origin = window.location.protocol + '//' + window.location.host;
-  new google.picker.PickerBuilder()
+  const picker = new google.picker.PickerBuilder()
     .addView(google.picker.ViewId.PHOTOS)
+    .addView(new google.picker.PhotosView()
+      .setType(google.picker.PhotosView.Type.ALBUMS)
+    )
     .setOAuthToken(accessToken)
-    .setDeveloperKey('AIzaSyAs5gi9b3WNriZoaUW7eq2-5ECOPp1lBmU')            // your API key here
-    .setOrigin(origin)                          // IMPORTANT!
-    .setCallback(onPickerCallback)
-    .build()
-    .setVisible(true);
+    .setDeveloperKey(DEVELOPER_KEY)
+    .setCallback(pickerCallback)
+    .setOrigin(window.location.origin)
+    .build();
+
+  picker.setVisible(true);
 }
 
+function pickerCallback(data) {
+  if (data.action !== google.picker.Action.PICKED) return;
 
-// Handle user selection
-function onPickerCallback(data) {
-  console.log('[CLIENT] Picker callback:', data);
-  if (data.action === google.picker.Action.PICKED) {
-    gallery.innerHTML = '';
-    data.docs.forEach(doc => {
-      const img = document.createElement('img');
-      img.src = doc.thumbnails[0].url;
-      gallery.appendChild(img);
-    });
+  gallery.innerHTML = '';
+  data.docs.forEach(doc => {
+    const img = document.createElement('img');
+    img.src = doc.thumbnails?.pop()?.url || doc.url;
+    img.alt = doc.name;
+    img.classList.add('gallery-item');
+    gallery.appendChild(img);
+  });
+}
+
+// UI Functions
+function updateUI() {
+  authBtn.disabled = !!accessToken;
+  pickerBtn.disabled = !accessToken || !pickerApiLoaded;
+  statusEl.textContent = accessToken ? 'Ready to pick photos' : 'Please authenticate';
+}
+
+function showError(message) {
+  statusEl.textContent = `Error: ${message}`;
+  statusEl.classList.add('error');
+  setTimeout(() => statusEl.classList.remove('error'), 3000);
+}
+
+// Event Listeners
+authBtn.addEventListener('click', () => {
+  window.location.href = '/authorize';
+});
+
+pickerBtn.addEventListener('click', async () => {
+  try {
+    await createPicker();
+  } catch (error) {
+    showError(error.message);
   }
-}
+});
 
-// 4) Wire up buttons
-authBtn.onclick   = () => { console.log('[CLIENT] Authorize clicked'); window.location.href = '/authorize'; };
-pickerBtn.onclick = () => { console.log('[CLIENT] Open Picker clicked'); openPicker(); };
-
-// 5) Start on load
-window.onload = () => {
-  console.log('[CLIENT] Window loaded, fetching token...');
-  fetchToken();
-};
+// Initialize
+(async function init() {
+  await initPickerAPI();
+  await fetchToken();
+  updateUI();
+})();

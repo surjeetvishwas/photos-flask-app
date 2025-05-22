@@ -1,94 +1,29 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Google Photos Picker</title>
-  <link rel="stylesheet" href="/css/styles.css"/>
-
-  <!-- GAPI Client Library -->
-  <script>
-    let pickerApiLoaded = false;
-
-    function onGapiLoad() {
-      console.log('[GAPI] core library loaded');
-      gapi.load('picker', { callback: onPickerApiLoad });
-    }
-
-    function onPickerApiLoad() {
-      console.log('[PICKER] Picker API loaded');
-      pickerApiLoaded = true;
-      document.getElementById('picker-btn').disabled = false;
-    }
-
-    // Load Google API
-    function loadPickerScript() {
-      const script = document.createElement('script');
-      script.src = "https://apis.google.com/js/api.js?onload=onGapiLoad";
-      document.head.appendChild(script);
-    }
-
-    loadPickerScript();
-  </script>
-  <script src="https://www.gstatic.com/picker/3/picker.js"></script>
+  <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
   <div class="container">
-    <h1>📸 Google Photos Picker</h1>
-    <button id="authorize-btn" class="btn" onclick="window.location.href='/authorize'">Connect to Google</button>
-    <button id="picker-btn" class="btn" disabled onclick="openPicker()">Open Photo Picker</button>
+    <h1>Google Photos Picker</h1>
+    <div id="status-message" class="status"></div>
+    
+    <div class="button-group">
+      <button id="authorize-btn" class="btn">Connect Google Account</button>
+      <button id="picker-btn" class="btn" disabled>Open Photo Picker</button>
+    </div>
+    
     <div id="gallery" class="gallery"></div>
+    
+    <div class="info">
+      <p>This app uses the Google Photos Picker API to securely access your photos.</p>
+      <p><a href="https://developers.google.com/photos/picker" target="_blank">Learn more</a></p>
+    </div>
   </div>
 
-  <script>
-    const DEVELOPER_KEY = 'AIzaSyAs5gi9b3WNriZoaUW7eq2-5ECOPp1lBmU'; // 🔑 Replace this
-    const APP_ID = '277752080125';        // 🔢 Optional if you use photoslibrary
-    const ALBUM_VIEW = new google.picker.PhotosView().setType('camerasync');
-
-    async function getAccessToken() {
-      try {
-        const res = await fetch('/token');
-        if (!res.ok) throw new Error('Not authenticated');
-        const data = await res.json();
-        return data.access_token;
-      } catch (err) {
-        alert('Please authorize the app first.');
-        return null;
-      }
-    }
-
-    async function openPicker() {
-      if (!pickerApiLoaded) return;
-
-      const accessToken = await getAccessToken();
-      if (!accessToken) return;
-
-      const picker = new google.picker.PickerBuilder()
-        .addView(google.picker.ViewId.PHOTOS)
-        .setOAuthToken(accessToken)
-        .setDeveloperKey(DEVELOPER_KEY)
-        .setCallback(pickerCallback)
-        .build();
-
-      picker.setVisible(true);
-    }
-
-    function pickerCallback(data) {
-      if (data.action === google.picker.Action.PICKED) {
-        const file = data.docs[0];
-        const url = file.url || file.thumbnails?.[0]?.url;
-        const gallery = document.getElementById('gallery');
-
-        if (url) {
-          const img = document.createElement('img');
-          img.src = url;
-          img.alt = 'Selected Photo';
-          img.style.width = '200px';
-          img.style.margin = '10px';
-          gallery.appendChild(img);
-        }
-      }
-    }
-  </script>
+  <script src="/js/picker.js" data-api-key="<%= pickerApiKey %>"></script>
 </body>
 </html>
