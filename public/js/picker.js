@@ -1,10 +1,10 @@
 class GooglePhotosPicker {
-  constructor() {
+  constructor({ developerKey, appDomain }) {
     this.accessToken = null;
     this.pickerApiLoaded = false;
-    this.developerKey = document.currentScript.getAttribute('data-api-key');
-    this.appDomain = document.currentScript.getAttribute('data-app-domain');
-    
+    this.developerKey = developerKey;
+    this.appDomain = appDomain;
+
     this.initElements();
     this.initEventListeners();
     this.initializeApp();
@@ -64,12 +64,11 @@ class GooglePhotosPicker {
     try {
       const tokenData = await this.fetchTokenWithRetry();
       this.accessToken = tokenData.access_token;
-      
-      // Set up token refresh before expiration
+
       if (tokenData.expires_in) {
         setTimeout(() => {
           this.silentReauthenticate();
-        }, (tokenData.expires_in - 60) * 1000); // Refresh 1 minute before expiry
+        }, (tokenData.expires_in - 60) * 1000); // 1 min before expiry
       }
     } catch (error) {
       throw new Error('Authentication required');
@@ -81,7 +80,7 @@ class GooglePhotosPicker {
       const response = await fetch('/token', {
         credentials: 'include'
       });
-      
+
       if (response.status === 401) {
         const errorData = await response.json();
         if (errorData.code === 'TOKEN_EXPIRED' && retries > 0) {
@@ -90,9 +89,9 @@ class GooglePhotosPicker {
         }
         throw new Error('Authentication required');
       }
-      
+
       if (!response.ok) throw new Error('Token request failed');
-      
+
       return await response.json();
     } catch (error) {
       if (retries > 0) {
@@ -109,9 +108,9 @@ class GooglePhotosPicker {
         method: 'POST',
         credentials: 'include'
       });
-      
+
       if (!response.ok) throw new Error('Refresh failed');
-      
+
       return await response.json();
     } catch (error) {
       console.error('Silent reauth failed:', error);
@@ -172,8 +171,3 @@ class GooglePhotosPicker {
     }, 5000);
   }
 }
-
-// Initialize when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
-  new GooglePhotosPicker();
-});
