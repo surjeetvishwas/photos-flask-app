@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Google Photos Picker</title>
+  <link rel="stylesheet" href="/css/styles.css"/>
+  <script>
+    // Called by api.js when loaded
+    function onApiLoad() {
+      gapi.load('picker', {
+        callback: () => { window.pickerApiLoaded = true; }
+      });
+    }
+  </script>
+  <!-- Load GAPI & Picker library -->
+  <script src="https://apis.google.com/js/api.js?onload=onApiLoad"></script>
+  <script src="https://www.gstatic.com/picker/3/picker.js"></script>
+  <script src="/js/picker.js" defer></script>
+</head>
+<body>
+  <div class="container">
+    <h1>📸 Google Photos Picker</h1>
+    <button id="authorize-btn" class="btn">Connect to Google</button>
+    <button id="picker-btn" class="btn" disabled>Open Photo Picker</button>
+    <div id="gallery" class="gallery"></div>
+  </div>
+</body>
+</html>

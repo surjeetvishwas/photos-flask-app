@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Selected Media</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>Your Selections</h1>
+    <div class="gallery">
+      <% media_items.forEach(item => { %>
+        <div class="photo-card">
+          <img src="<%= item.baseUrl %>=w200-h200" alt="" />
+          <p><%= item.filename %></p>
+        </div>
+      <% }) %>
+    </div>
+    <a href="/" class="btn">Back Home</a>
+  </div>
+</body>
+</html>

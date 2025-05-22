@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Google Photos Picker</title>
+  <link rel="stylesheet" href="/css/styles.css"/>
+
+  <!-- 1) Load the core GAPI client, then call onGapiLoad -->
+  <script>
+    function onGapiLoad() {
+      console.log('[GAPI] core library loaded');
+      gapi.load('picker', {
+        callback: onPickerApiLoad,
+        // timeouts or error handling can be added here
+      });
+    }
+    function onPickerApiLoad() {
+      console.log('[PICKER] Picker API loaded');
+      window.pickerApiLoaded = true;
+    }
+  </script>
+  <script src="https://apis.google.com/js/api.js?onload=onGapiLoad"></script>
+
+  <!-- 2) Include the Picker standalone library -->
+  <script src="https://www.gstatic.com/picker/3/picker.js"></script>
+
+  <!-- 3) Your app logic -->
+  <script src="/js/picker.js" defer></script>
+</head>
+<body>
+  <div class="container">
+    <h1>📸 Google Photos Picker</h1>
+    <button id="authorize-btn" class="btn">Connect to Google</button>
+    <button id="picker-btn" class="btn" disabled>Open Photo Picker</button>
+    <div id="gallery" class="gallery"></div>
+  </div>
+</body>
+</html>
