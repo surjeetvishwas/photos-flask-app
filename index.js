@@ -25,10 +25,11 @@ const oauth2Client = new google.auth.OAuth2(
 );
 
 const SCOPES = [
-  'https://www.googleapis.com/auth/photoslibrary.readonly',
   'https://www.googleapis.com/auth/photoslibrary.appendonly',
-  'https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata'
+  'https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata',
+  'https://www.googleapis.com/auth/photoslibrary.edit.appcreateddata'
 ];
+
 
 const app = express();
 app.set('view engine', 'ejs');
