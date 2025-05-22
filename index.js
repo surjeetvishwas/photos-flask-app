@@ -4,6 +4,7 @@ import { google } from 'googleapis';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -24,7 +25,6 @@ const oauth2Client = new google.auth.OAuth2(
   REDIRECT_URI
 );
 
-// Updated scopes according to new requirements
 const SCOPES = [
   'https://www.googleapis.com/auth/photoslibrary.appendonly',
   'https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata',
@@ -36,14 +36,18 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
+
 app.use(session({
   secret: SESSION_SECRET,
   resave: false,
-  saveUninitialized: true,
-  cookie: { secure: process.env.NODE_ENV === 'production' }
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    sameSite: 'lax'
+  }
 }));
 
-// Routes
 app.get('/', (req, res) => {
   res.render('index', { 
     pickerApiKey: PICKER_API_KEY,
@@ -53,9 +57,9 @@ app.get('/', (req, res) => {
 
 app.get('/authorize', (req, res) => {
   const url = oauth2Client.generateAuthUrl({
-    access_type: 'offline',
+    access_type: 'offline', // request refresh token
     scope: SCOPES,
-    prompt: 'consent'
+    prompt: 'consent' // always ask consent to get refresh token
   });
   res.redirect(url);
 });
@@ -64,6 +68,7 @@ app.get('/oauth2callback', async (req, res) => {
   try {
     const { tokens } = await oauth2Client.getToken(req.query.code);
     req.session.tokens = tokens;
+    console.log('Tokens acquired:', tokens);
     res.redirect('/');
   } catch (err) {
     console.error('OAuth Error:', err);
@@ -84,15 +89,33 @@ app.get('/token', async (req, res) => {
     });
   }
 
-  const tokens = req.session.tokens;
+  let tokens = req.session.tokens;
   oauth2Client.setCredentials(tokens);
 
-  // If expired, refresh token
-  if (tokens.expiry_date < Date.now()) {
+  const now = Date.now();
+
+  // If expiry_date missing or token expired (with a small buffer)
+  if (!tokens.expiry_date || tokens.expiry_date - 60000 < now) {
+    if (!tokens.refresh_token) {
+      console.warn('No refresh token available, re-authentication required');
+      return res.status(401).json({
+        error: 'Refresh token missing, please re-authenticate',
+        authUrl: '/authorize',
+        code: 'NO_REFRESH_TOKEN'
+      });
+    }
+
     try {
-      const { credentials } = await oauth2Client.refreshAccessToken();
-      req.session.tokens = credentials;
-      oauth2Client.setCredentials(credentials);
+      // Refresh access token using refresh_token
+      const newTokens = await oauth2Client.refreshToken(tokens.refresh_token);
+      tokens = {
+        ...tokens,
+        access_token: newTokens.credentials.access_token,
+        expiry_date: newTokens.credentials.expiry_date,
+      };
+      req.session.tokens = tokens;
+      oauth2Client.setCredentials(tokens);
+      console.log('Access token refreshed');
     } catch (err) {
       console.error('Token refresh failed', err);
       return res.status(401).json({
@@ -104,12 +127,12 @@ app.get('/token', async (req, res) => {
   }
 
   res.json({
-    access_token: oauth2Client.credentials.access_token,
-    expires_in: Math.floor((oauth2Client.credentials.expiry_date - Date.now()) / 1000)
+    access_token: tokens.access_token,
+    expires_in: Math.floor((tokens.expiry_date - now) / 1000)
   });
 });
 
-// Error handlers
+// 404 handler
 app.use((req, res) => {
   res.status(404).render('error', { 
     message: 'Not Found',
@@ -117,6 +140,7 @@ app.use((req, res) => {
   });
 });
 
+// Generic error handler
 app.use((err, req, res, next) => {
   console.error('Server Error:', err);
   res.status(500).render('error', {
