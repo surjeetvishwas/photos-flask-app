@@ -6,34 +6,89 @@
   <title>Google Photos Picker</title>
   <link rel="stylesheet" href="/css/styles.css"/>
 
-  <!-- 1) Load the core GAPI client, then call onGapiLoad -->
+  <!-- GAPI Client Library -->
   <script>
+    let pickerApiLoaded = false;
+
     function onGapiLoad() {
       console.log('[GAPI] core library loaded');
-      gapi.load('picker', {
-        callback: onPickerApiLoad,
-        // timeouts or error handling can be added here
-      });
+      gapi.load('picker', { callback: onPickerApiLoad });
     }
+
     function onPickerApiLoad() {
       console.log('[PICKER] Picker API loaded');
-      window.pickerApiLoaded = true;
+      pickerApiLoaded = true;
+      document.getElementById('picker-btn').disabled = false;
     }
+
+    // Load Google API
+    function loadPickerScript() {
+      const script = document.createElement('script');
+      script.src = "https://apis.google.com/js/api.js?onload=onGapiLoad";
+      document.head.appendChild(script);
+    }
+
+    loadPickerScript();
   </script>
-  <script src="https://apis.google.com/js/api.js?onload=onGapiLoad"></script>
-
-  <!-- 2) Include the Picker standalone library -->
   <script src="https://www.gstatic.com/picker/3/picker.js"></script>
-
-  <!-- 3) Your app logic -->
-  <script src="/js/picker.js" defer></script>
 </head>
 <body>
   <div class="container">
     <h1>📸 Google Photos Picker</h1>
-    <button id="authorize-btn" class="btn">Connect to Google</button>
-    <button id="picker-btn" class="btn" disabled>Open Photo Picker</button>
+    <button id="authorize-btn" class="btn" onclick="window.location.href='/authorize'">Connect to Google</button>
+    <button id="picker-btn" class="btn" disabled onclick="openPicker()">Open Photo Picker</button>
     <div id="gallery" class="gallery"></div>
   </div>
+
+  <script>
+    const DEVELOPER_KEY = 'AIzaSyAs5gi9b3WNriZoaUW7eq2-5ECOPp1lBmU'; // 🔑 Replace this
+    const APP_ID = '277752080125';        // 🔢 Optional if you use photoslibrary
+    const ALBUM_VIEW = new google.picker.PhotosView().setType('camerasync');
+
+    async function getAccessToken() {
+      try {
+        const res = await fetch('/token');
+        if (!res.ok) throw new Error('Not authenticated');
+        const data = await res.json();
+        return data.access_token;
+      } catch (err) {
+        alert('Please authorize the app first.');
+        return null;
+      }
+    }
+
+    async function openPicker() {
+      if (!pickerApiLoaded) return;
+
+      const accessToken = await getAccessToken();
+      if (!accessToken) return;
+
+      const picker = new google.picker.PickerBuilder()
+        .addView(google.picker.ViewId.PHOTOS)
+        .setOAuthToken(accessToken)
+        .setDeveloperKey(DEVELOPER_KEY)
+        .setCallback(pickerCallback)
+        .build();
+
+      picker.setVisible(true);
+    }
+
+    function pickerCallback(data) {
+      if (data.action === google.picker.Action.PICKED) {
+        const file = data.docs[0];
+        const url = file.url || file.thumbnails?.[0]?.url;
+        const gallery = document.getElementById('gallery');
+
+        if (url) {
+          const img = document.createElement('img');
+          img.src = url;
+          img.alt = 'Selected Photo';
+          img.style.width = '200px';
+          img.style.margin = '10px';
+          gallery.appendChild(img);
+        }
+      }
+    }
+  </script>
 </body>
 </html>

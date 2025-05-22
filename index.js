@@ -25,10 +25,13 @@ const oauth2Client = new google.auth.OAuth2(
 );
 
 const SCOPES = [
+  'https://www.googleapis.com/auth/photoslibrary.readonly',
   'https://www.googleapis.com/auth/photoslibrary.appendonly',
   'https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata',
-  'https://www.googleapis.com/auth/photoslibrary.edit.appcreateddata'
+  'https://www.googleapis.com/auth/photoslibrary.edit.appcreateddata',
+  'https://www.googleapis.com/auth/drive.file' // required for Picker sometimes
 ];
+
 
 
 const app = express();
