@@ -61,41 +61,24 @@ class GooglePhotosPicker {
   }
 
   async checkAuthStatus() {
-    try {
-      const tokenData = await this.fetchTokenWithRetry();
-      this.accessToken = tokenData.access_token;
+    const tokenData = await this.fetchTokenWithRetry();
+    this.accessToken = tokenData.access_token;
 
-      if (tokenData.expires_in) {
-        setTimeout(() => {
-          this.silentReauthenticate();
-        }, (tokenData.expires_in - 60) * 1000); // 1 min before expiry
-      }
-    } catch (error) {
-      throw new Error('Authentication required');
+    if (tokenData.expires_in) {
+      setTimeout(() => {
+        this.silentReauthenticate();
+      }, (tokenData.expires_in - 60) * 1000);
     }
   }
 
   async fetchTokenWithRetry(retries = 3) {
     try {
-      const response = await fetch('/token', {
-        credentials: 'include'
-      });
-
-      if (response.status === 401) {
-        const errorData = await response.json();
-        if (errorData.code === 'TOKEN_EXPIRED' && retries > 0) {
-          await this.silentReauthenticate();
-          return this.fetchTokenWithRetry(retries - 1);
-        }
-        throw new Error('Authentication required');
-      }
-
-      if (!response.ok) throw new Error('Token request failed');
-
+      const response = await fetch('/token', { credentials: 'include' });
+      if (!response.ok) throw new Error('Token fetch failed');
       return await response.json();
     } catch (error) {
       if (retries > 0) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(res => setTimeout(res, 1000));
         return this.fetchTokenWithRetry(retries - 1);
       }
       throw error;
@@ -103,41 +86,23 @@ class GooglePhotosPicker {
   }
 
   async silentReauthenticate() {
-    try {
-      const response = await fetch('/refresh-token', {
-        method: 'POST',
-        credentials: 'include'
-      });
-
-      if (!response.ok) throw new Error('Refresh failed');
-
-      return await response.json();
-    } catch (error) {
-      console.error('Silent reauth failed:', error);
-      window.location.href = '/authorize';
-      throw error;
-    }
+    const res = await fetch('/refresh-token', {
+      method: 'POST',
+      credentials: 'include'
+    });
+    if (!res.ok) throw new Error('Silent reauth failed');
   }
 
   async openPicker() {
-    if (!this.pickerApiLoaded) {
-      throw new Error('Picker API not loaded');
-    }
-
-    if (!this.accessToken) {
-      await this.checkAuthStatus();
-    }
+    if (!this.pickerApiLoaded) throw new Error('Picker not loaded');
+    if (!this.accessToken) await this.checkAuthStatus();
 
     const picker = new google.picker.PickerBuilder()
       .addView(google.picker.ViewId.PHOTOS)
-      .addView(new google.picker.PhotosView()
-        .setType(google.picker.PhotosView.Type.ALBUMS)
-      )
       .setOAuthToken(this.accessToken)
       .setDeveloperKey(this.developerKey)
       .setCallback(this.pickerCallback.bind(this))
       .setOrigin(window.location.origin)
-      .setRelayUrl(`https://${this.appDomain}`)
       .build();
 
     picker.setVisible(true);
@@ -147,27 +112,31 @@ class GooglePhotosPicker {
     if (data.action !== google.picker.Action.PICKED) return;
 
     this.gallery.innerHTML = '';
-    data.docs.forEach(doc => {
+    for (const doc of data.docs) {
       const img = document.createElement('img');
       img.src = doc.thumbnails?.pop()?.url || doc.url;
-      img.alt = doc.name;
+      img.alt = doc.name || 'Photo';
       img.classList.add('gallery-item');
       this.gallery.appendChild(img);
-    });
+    }
   }
 
   updateUI() {
     this.authBtn.disabled = !!this.accessToken;
     this.pickerBtn.disabled = !this.accessToken || !this.pickerApiLoaded;
-    this.statusEl.textContent = this.accessToken ? 'Ready to pick photos' : 'Please authenticate';
-    this.statusEl.className = 'status';
+    this.statusEl.textContent = this.accessToken ? 'Ready' : 'Please connect';
   }
 
-  showError(message) {
-    this.statusEl.textContent = `Error: ${message}`;
+  showError(msg) {
+    this.statusEl.textContent = `Error: ${msg}`;
     this.statusEl.classList.add('error');
-    setTimeout(() => {
-      this.statusEl.classList.remove('error');
-    }, 5000);
+    setTimeout(() => this.statusEl.classList.remove('error'), 4000);
   }
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+  new GooglePhotosPicker({
+    developerKey: window.PICKER_CONFIG.apiKey,
+    appDomain: window.PICKER_CONFIG.appDomain
+  });
+});
