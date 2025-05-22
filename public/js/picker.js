@@ -1,20 +1,38 @@
+// Capture configuration early while script is loading
+const currentScript = document.currentScript;
+const developerKey = currentScript?.getAttribute('data-api-key') || '';
+const appDomain = currentScript?.getAttribute('data-app-domain') || window.location.hostname;
+
+// Validate critical configuration
+if (!currentScript) {
+  throw new Error('Picker script must be loaded directly in a <script> tag');
+}
+
+if (!developerKey) {
+  console.error('Missing required data-api-key attribute');
+  throw new Error('Invalid API key configuration');
+}
+
 class GooglePhotosPicker {
-  constructor({ developerKey, appDomain }) {
+  constructor() {
     this.accessToken = null;
     this.pickerApiLoaded = false;
     this.developerKey = developerKey;
     this.appDomain = appDomain;
 
-    this.initElements();
-    this.initEventListeners();
-    this.initializeApp();
-  }
-
-  initElements() {
+    // DOM Elements
     this.authBtn = document.getElementById('authorize-btn');
     this.pickerBtn = document.getElementById('picker-btn');
     this.gallery = document.getElementById('gallery');
     this.statusEl = document.getElementById('status-message');
+
+    // Validate DOM elements
+    if (!this.authBtn || !this.pickerBtn || !this.gallery || !this.statusEl) {
+      throw new Error('Required DOM elements missing');
+    }
+
+    this.initEventListeners();
+    this.initializeApp();
   }
 
   initEventListeners() {
@@ -41,44 +59,62 @@ class GooglePhotosPicker {
   }
 
   loadPickerAPI() {
-    return new Promise((resolve) => {
-      if (window.google && google.picker) {
+    return new Promise((resolve, reject) => {
+      if (window.google?.picker) {
         this.pickerApiLoaded = true;
-        resolve();
-        return;
+        return resolve();
       }
 
       const script = document.createElement('script');
       script.src = 'https://apis.google.com/js/api.js';
       script.onload = () => {
-        gapi.load('picker', () => {
-          this.pickerApiLoaded = true;
-          resolve();
+        gapi.load('picker', {
+          callback: () => {
+            this.pickerApiLoaded = true;
+            resolve();
+          },
+          onerror: reject
         });
       };
+      script.onerror = reject;
       document.head.appendChild(script);
     });
   }
 
   async checkAuthStatus() {
-    const tokenData = await this.fetchTokenWithRetry();
-    this.accessToken = tokenData.access_token;
-
-    if (tokenData.expires_in) {
-      setTimeout(() => {
-        this.silentReauthenticate();
-      }, (tokenData.expires_in - 60) * 1000);
+    try {
+      const tokenData = await this.fetchTokenWithRetry();
+      this.accessToken = tokenData.access_token;
+      
+      if (tokenData.expires_in) {
+        setTimeout(() => {
+          this.silentReauthenticate();
+        }, (tokenData.expires_in - 60) * 1000);
+      }
+    } catch (error) {
+      throw new Error('Authentication required');
     }
   }
 
   async fetchTokenWithRetry(retries = 3) {
     try {
       const response = await fetch('/token', { credentials: 'include' });
-      if (!response.ok) throw new Error('Token fetch failed');
-      return await response.json();
+      
+      if (response.status === 401) {
+        const errorData = await response.json();
+        if (errorData.code === 'TOKEN_EXPIRED' && retries > 0) {
+          await this.silentReauthenticate();
+          return this.fetchTokenWithRetry(retries - 1);
+        }
+        throw new Error('Authentication required');
+      }
+      
+      if (!response.ok) throw new Error('Token request failed');
+      
+      return response.json();
     } catch (error) {
       if (retries > 0) {
-        await new Promise(res => setTimeout(res, 1000));
+        await new Promise(resolve => setTimeout(resolve, 1000));
         return this.fetchTokenWithRetry(retries - 1);
       }
       throw error;
@@ -86,57 +122,87 @@ class GooglePhotosPicker {
   }
 
   async silentReauthenticate() {
-    const res = await fetch('/refresh-token', {
-      method: 'POST',
-      credentials: 'include'
-    });
-    if (!res.ok) throw new Error('Silent reauth failed');
+    try {
+      const response = await fetch('/refresh-token', {
+        method: 'POST',
+        credentials: 'include'
+      });
+      
+      if (!response.ok) throw new Error('Refresh failed');
+      
+      return this.checkAuthStatus();
+    } catch (error) {
+      console.error('Silent reauth failed:', error);
+      window.location.href = '/authorize';
+      throw error;
+    }
   }
 
   async openPicker() {
-    if (!this.pickerApiLoaded) throw new Error('Picker not loaded');
+    if (!this.pickerApiLoaded) throw new Error('Picker API not loaded');
     if (!this.accessToken) await this.checkAuthStatus();
 
-    const picker = new google.picker.PickerBuilder()
-      .addView(google.picker.ViewId.PHOTOS)
-      .setOAuthToken(this.accessToken)
-      .setDeveloperKey(this.developerKey)
-      .setCallback(this.pickerCallback.bind(this))
-      .setOrigin(window.location.origin)
-      .build();
+    return new Promise((resolve) => {
+      const picker = new google.picker.PickerBuilder()
+        .addView(google.picker.ViewId.PHOTOS)
+        .addView(new google.picker.PhotosView()
+          .setType(google.picker.PhotosView.Type.ALBUMS)
+        )
+        .setOAuthToken(this.accessToken)
+        .setDeveloperKey(this.developerKey)
+        .setCallback(data => {
+          this.pickerCallback(data);
+          resolve();
+        })
+        .setOrigin(window.location.origin)
+        .setRelayUrl(`https://${this.appDomain}`)
+        .build();
 
-    picker.setVisible(true);
+      picker.setVisible(true);
+    });
   }
 
   pickerCallback(data) {
     if (data.action !== google.picker.Action.PICKED) return;
 
     this.gallery.innerHTML = '';
-    for (const doc of data.docs) {
+    data.docs.forEach(doc => {
       const img = document.createElement('img');
       img.src = doc.thumbnails?.pop()?.url || doc.url;
-      img.alt = doc.name || 'Photo';
+      img.alt = doc.name;
       img.classList.add('gallery-item');
       this.gallery.appendChild(img);
-    }
+    });
   }
 
   updateUI() {
     this.authBtn.disabled = !!this.accessToken;
     this.pickerBtn.disabled = !this.accessToken || !this.pickerApiLoaded;
-    this.statusEl.textContent = this.accessToken ? 'Ready' : 'Please connect';
+    this.statusEl.textContent = this.accessToken ? 'Ready to pick photos' : 'Please authenticate';
+    this.statusEl.className = 'status';
   }
 
-  showError(msg) {
-    this.statusEl.textContent = `Error: ${msg}`;
+  showError(message) {
+    this.statusEl.textContent = `Error: ${message}`;
     this.statusEl.classList.add('error');
-    setTimeout(() => this.statusEl.classList.remove('error'), 4000);
+    setTimeout(() => {
+      this.statusEl.classList.remove('error');
+    }, 5000);
   }
 }
 
+// Safe initialization
 document.addEventListener('DOMContentLoaded', () => {
-  new GooglePhotosPicker({
-    developerKey: window.PICKER_CONFIG.apiKey,
-    appDomain: window.PICKER_CONFIG.appDomain
-  });
+  try {
+    if (document.querySelector('[data-picker-enabled]')) {
+      new GooglePhotosPicker();
+    }
+  } catch (error) {
+    console.error('Picker initialization failed:', error);
+    const statusEl = document.getElementById('status-message');
+    if (statusEl) {
+      statusEl.textContent = `Initialization Error: ${error.message}`;
+      statusEl.classList.add('error');
+    }
+  }
 });

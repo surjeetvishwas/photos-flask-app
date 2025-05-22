@@ -1,35 +1,34 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Google Photos Picker</title>
-  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
   <div class="container">
     <h1>Google Photos Picker</h1>
     <div id="status-message" class="status"></div>
-
+    
     <div class="button-group">
-      <button id="authorize-btn" class="btn">Connect Google Account</button>
+      <button id="authorize-btn" class="btn" 
+        onclick="window.location.href='/authorize'; return false;">
+  Connect Google Account
+</button>
       <button id="picker-btn" class="btn" disabled>Open Photo Picker</button>
     </div>
-
+    
     <div id="gallery" class="gallery"></div>
-
+    
     <div class="info">
       <p>This app uses the Google Photos Picker API to securely access your photos.</p>
       <p><a href="https://developers.google.com/photos/picker" target="_blank">Learn more</a></p>
     </div>
   </div>
 
-  <script>
-    window.PICKER_CONFIG = {
-      apiKey: "<%= pickerApiKey %>",
-      appDomain: "<%= appDomain %>"
-    };
-  </script>
-  <script src="/js/picker.js"></script>
+  <script src="/js/picker.js" 
+          data-api-key="<%= pickerApiKey %>"
+          data-app-domain="<%= appDomain %>"></script>
 </body>
 </html>
