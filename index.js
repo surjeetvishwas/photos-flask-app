@@ -74,16 +74,38 @@ app.get('/oauth2callback', async (req, res) => {
   }
 });
 
-app.get('/token', (req, res) => {
+app.get('/token', async (req, res) => {
   if (!req.session.tokens) {
-    return res.status(401).json({ 
+    console.warn('Token request without valid session');
+    return res.status(401).json({
       error: 'Not authenticated',
-      authUrl: '/authorize'
+      authUrl: '/authorize',
+      code: 'NO_SESSION'
     });
   }
-  res.json({ 
-    access_token: req.session.tokens.access_token,
-    expires_in: req.session.tokens.expiry_date - Date.now()
+
+  const tokens = req.session.tokens;
+  oauth2Client.setCredentials(tokens);
+
+  // If expired, refresh token
+  if (tokens.expiry_date < Date.now()) {
+    try {
+      const { credentials } = await oauth2Client.refreshAccessToken();
+      req.session.tokens = credentials;
+      oauth2Client.setCredentials(credentials);
+    } catch (err) {
+      console.error('Token refresh failed', err);
+      return res.status(401).json({
+        error: 'Token refresh failed',
+        authUrl: '/authorize',
+        code: 'TOKEN_REFRESH_FAILED'
+      });
+    }
+  }
+
+  res.json({
+    access_token: oauth2Client.credentials.access_token,
+    expires_in: Math.floor((oauth2Client.credentials.expiry_date - Date.now()) / 1000)
   });
 });
 
